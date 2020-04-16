@@ -30,12 +30,17 @@ class RS_CSV_Helper {
 		if (0 == strncmp($array[0], $bom, 3)) {
 			$array[0] = substr($array[0], 3);
 		}
-
 		$keys = array_keys($array);
 		$values = array_values($array);
+		/** @since 1.4.0 cleaner construct rows of key->values */
+		if(empty($obj->column_indexes)){
+			$obj->column_indexes = array_combine($values, $keys);
+			$obj->column_keys = array_combine($keys, $values);
+		}else{
+			$keys = array_keys($obj->column_indexes);
+		}
 
-		$obj->column_indexes = array_combine($values, $keys);
-		$obj->column_keys = array_combine($keys, $values);
+		return array_combine($keys,$values);
 	}
 
 	public function get_data($obj, &$array, $key) {
