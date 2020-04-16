@@ -7,7 +7,7 @@ Author: Takuro Hishikawa
 Author URI: https://en.digitalcube.jp/
 Text Domain: really-simple-csv-importer
 License: GPL version 2 or later - http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
-Version: 1.3
+Version: 1.4.0
 */
 
 if ( !defined('WP_LOAD_IMPORTERS') )
@@ -34,7 +34,7 @@ require dirname( __FILE__ ) . '/class-rscsv_import_post_helper.php';
  */
 if ( class_exists( 'WP_Importer' ) ) {
 class RS_CSV_Importer extends WP_Importer {
-	
+
 	/** Sheet columns
 	* @value array
 	*/
@@ -51,7 +51,7 @@ class RS_CSV_Importer extends WP_Importer {
 	function footer() {
 		echo '</div>';
 	}
-	
+
 	// Step 1
 	function greet() {
 		echo '<p>'.__( 'Choose a CSV (.csv) file to upload, then click Upload file and import.', 'really-simple-csv-importer' ).'</p>';
@@ -67,18 +67,6 @@ class RS_CSV_Importer extends WP_Importer {
 		echo ' <a href="'.plugin_dir_url( __FILE__ ).'sample/sample.ods">'.__( 'ods', 'really-simple-csv-importer' ).'</a>';
 		echo ' '.__('(OpenDocument Spreadsheet file format for LibreOffice. Please export as csv before import)', 'really-simple-csv-importer' );
 		echo '</p>';
-		?>
-		<div id="really-simple-csv-importer-form-options" style="display: none;">
-			<h2><?php _e( 'Import Options', 'really-simple-csv-importer' ); ?></h2>
-			<p><?php _e( 'Replace by post title', 'really-simple-csv-importer' ); ?></p>
-			<label>
-				<input type="radio" name="replace-by-title" value="0" checked="checked" /><?php _e( 'Disable', 'really-simple-csv-importer' ); ?>
-			</label>
-			<label>
-				<input type="radio" name="replace-by-title" value="1" /><?php _e( 'Enable', 'really-simple-csv-importer' ); ?>
-			</label>
-		</div>
-		<?php
 		wp_import_upload_form( add_query_arg('step', 1) );
 	}
 
@@ -96,14 +84,14 @@ class RS_CSV_Importer extends WP_Importer {
 			echo '</p>';
 			return false;
 		}
-		
+
 		$this->id = (int) $file['id'];
 		$this->file = get_attached_file($this->id);
 		$result = $this->process_posts();
 		if ( is_wp_error( $result ) )
 			return $result;
 	}
-	
+
 	/**
 	* Insert post and postmeta using `RSCSV_Import_Post_Helper` class.
 	*
@@ -115,7 +103,7 @@ class RS_CSV_Importer extends WP_Importer {
 	* @return RSCSV_Import_Post_Helper
 	*/
 	public function save_post($post,$meta,$terms,$thumbnail,$is_update) {
-		
+
 		// Separate the post tags from $post array
 		if (isset($post['post_tags']) && !empty($post['post_tags'])) {
 			$post_tags = $post['post_tags'];
@@ -135,25 +123,25 @@ class RS_CSV_Importer extends WP_Importer {
 		} else {
 			$h = RSCSV_Import_Post_Helper::add($post);
 		}
-		
+
 		// Set post tags
 		if (isset($post_tags)) {
 			$h->setPostTags($post_tags);
 		}
-		
+
 		// Set meta data
 		$h->setMeta($meta);
-		
+
 		// Set terms
 		foreach ($terms as $key => $value) {
 			$h->setObjectTerms($key, $value);
 		}
-		
+
 		// Add thumbnail
 		if ($thumbnail) {
 			$h->addThumbnail($thumbnail);
 		}
-		
+
 		return $h;
 	}
 
@@ -167,302 +155,211 @@ class RS_CSV_Importer extends WP_Importer {
 			wp_import_cleanup($this->id);
 			return false;
 		}
-		
+
 		$is_first = true;
 		$post_statuses = get_post_stati();
-		
+
 		echo '<ol>';
-		
+
 		while (($data = $h->fgetcsv($handle)) !== FALSE) {
+      /** @since 1.4.0. allow $data to hold index_key=>value pairs */
+      $data = $h->parse_columns( $this, $data );
 			if ($is_first) {
-				$h->parse_columns( $this, $data );
 				$is_first = false;
-			} else {
-				echo '<li>';
-				
-				$post = array();
-				$is_update = false;
-				$error = new WP_Error();
-				
-				// (string) (required) post type
-				$post_type = $h->get_data($this,$data,'post_type');
-				if ($post_type) {
-					if (post_type_exists($post_type)) {
-						$post['post_type'] = $post_type;
-					} else {
-						$error->add( 'post_type_exists', sprintf(__('Invalid post type "%s".', 'really-simple-csv-importer'), $post_type) );
-					}
-				} else {
-					echo __('Note: Please include post_type value if that is possible.', 'really-simple-csv-importer').'<br>';
-				}
-				
-				// (int) post id
-				$post_id = $h->get_data($this,$data,'ID');
-				$post_id = ($post_id) ? $post_id : $h->get_data($this,$data,'post_id');
-				if ($post_id) {
-					$post_exist = get_post($post_id);
-					if ( is_null( $post_exist ) ) { // if the post id is not exists
-						$post['import_id'] = $post_id;
-					} else {
-						if ( !$post_type || $post_exist->post_type == $post_type ) {
-							$post['ID'] = $post_id;
-							$is_update = true;
+        continue;
+		  }
+			echo '<li>';
+
+			$post = array();
+			$is_update = false;
+			$error = new WP_Error();
+			$post_type = $post_thumbnail = false;
+      /** @since 1.4.0 allow post_type filter */
+      $data['post_type'] = apply_filters('really_simple_csv_importer_post_type',$data['post_type'],$data);
+
+			if(!isset($data['post_type'])){
+				echo __('Note: Please include post_type value if that is possible.', 'really-simple-csv-importer').'<br>';
+			}else $post_type = $data['post_type'];
+			$meta = array();
+			$tax = array();
+			// (string) (required) post type
+			/** @since 1.4.0 modify the way rows are stripped into an array of column=>value pairs */
+			foreach($data as $key=>$value){
+				switch(true){
+					case 'post_type' == $key:
+							if (post_type_exists($post_type)) {
+								$post[$key] = $value;
+							} else {
+								$error->add( 'post_type_exists', sprintf(__('Invalid post type "%s".', 'really-simple-csv-importer'), $post_type) );
+							}
+						break;
+					case 'ID' == $key: // (int) post id
+						$post_exist = get_post($value);
+						if ( is_null( $post_exist ) ) { // if the post id is not exists
+							$post['import_id'] = $value;
 						} else {
-							$error->add( 'post_type_check', sprintf(__('The post type value from your csv file does not match the existing data in your database. post_id: %d, post_type(csv): %s, post_type(db): %s', 'really-simple-csv-importer'), $post_id, $post_type, $post_exist->post_type) );
-						}
-					}
-				}
-
-				// (string) post title
-				$post_title = $h->get_data($this,$data,'post_title');
-				if ($post_title) {
-
-					if ( ! $is_update && $_POST['replace-by-title'] == 1 ) {
-						//try to update a post with the same title
-						if ( ! $post_type ) {
-							$post_type = 'post';
-						}
-						$post_id = get_page_by_title($post_title, OBJECT, $post_type);
-
-						if ( ! is_null($post_id) ) {
-							$post['ID'] = $post_id;
-							$is_update = true;
-						}
-					}
-
-					$post['post_title'] = $post_title;
-				}
-
-				// (string) post slug
-				$post_name = $h->get_data($this,$data,'post_name');
-				if ($post_name) {
-					$post['post_name'] = $post_name;
-				}
-				
-				// (login or ID) post_author
-				$post_author = $h->get_data($this,$data,'post_author');
-				if ($post_author) {
-					if (is_numeric($post_author)) {
-						$user = get_user_by('id',$post_author);
-					} else {
-						$user = get_user_by('login',$post_author);
-					}
-					if (isset($user) && is_object($user)) {
-						$post['post_author'] = $user->ID;
-						unset($user);
-					}
-				}
-
-				// user_login to post_author
-				$user_login = $h->get_data($this,$data,'post_author_login');
-				if ($user_login) {
-					$user = get_user_by('login',$user_login);
-					if (isset($user) && is_object($user)) {
-						$post['post_author'] = $user->ID;
-						unset($user);
-					}
-				}
-				
-				// (string) publish date
-				$post_date = $h->get_data($this,$data,'post_date');
-				if ($post_date) {
-					$post['post_date'] = date("Y-m-d H:i:s", strtotime($post_date));
-				}
-				$post_date_gmt = $h->get_data($this,$data,'post_date_gmt');
-				if ($post_date_gmt) {
-					$post['post_date_gmt'] = date("Y-m-d H:i:s", strtotime($post_date_gmt));
-				}
-				
-				// (string) post status
-				$post_status = $h->get_data($this,$data,'post_status');
-				if ($post_status) {
-    				if (in_array($post_status, $post_statuses)) {
-    					$post['post_status'] = $post_status;
-    				}
-				}
-				
-				// (string) post password
-				$post_password = $h->get_data($this,$data,'post_password');
-				if ($post_password) {
-    				$post['post_password'] = $post_password;
-				}
-
-				// (string) post content
-				$post_content = $h->get_data($this,$data,'post_content');
-				if ($post_content) {
-					$post['post_content'] = $post_content;
-				}
-				
-				// (string) post excerpt
-				$post_excerpt = $h->get_data($this,$data,'post_excerpt');
-				if ($post_excerpt) {
-					$post['post_excerpt'] = $post_excerpt;
-				}
-				
-				// (int) post parent
-				$post_parent = $h->get_data($this,$data,'post_parent');
-				if ($post_parent) {
-					$post['post_parent'] = $post_parent;
-				}
-				
-				// (int) menu order
-				$menu_order = $h->get_data($this,$data,'menu_order');
-				if ($menu_order) {
-					$post['menu_order'] = $menu_order;
-				}
-				
-				// (string) comment status
-				$comment_status = $h->get_data($this,$data,'comment_status');
-				if ($comment_status) {
-					$post['comment_status'] = $comment_status;
-				}
-				
-				// (string, comma separated) slug of post categories
-				$post_category = $h->get_data($this,$data,'post_category');
-				if ($post_category) {
-					$categories = preg_split("/,+/", $post_category);
-					if ($categories) {
-						$post['post_category'] = wp_create_categories($categories);
-					}
-				}
-				
-				// (string, comma separated) name of post tags
-				$post_tags = $h->get_data($this,$data,'post_tags');
-				if ($post_tags) {
-					$post['post_tags'] = $post_tags;
-				}
-				
-				// (string) post thumbnail image uri
-				$post_thumbnail = $h->get_data($this,$data,'post_thumbnail');
-				
-				$meta = array();
-				$tax = array();
-
-				// add any other data to post meta
-				foreach ($data as $key => $value) {
-					if ($value !== false && isset($this->column_keys[$key])) {
-						// check if meta is custom taxonomy
-						if (substr($this->column_keys[$key], 0, 4) == 'tax_') {
-							// (string, comma divided) name of custom taxonomies 
-							$customtaxes = preg_split("/,+/", $value);
-							$taxname = substr($this->column_keys[$key], 4);
-							$tax[$taxname] = array();
-							foreach($customtaxes as $key => $value ) {
-								$tax[$taxname][] = $value;
+							if ( !$post_type || $post_exist->post_type == $post_type ) {
+								$post[$key] = $value;
+								$is_update = true;
+							} else {
+								$error->add( 'post_type_check', sprintf(__('The post type value from your csv file does not match the existing data in your database. post_id: %d, post_type(csv): %s, post_type(db): %s', 'really-simple-csv-importer'), $value, $post_type, $post_exist->post_type) );
 							}
 						}
-						else {
-							$meta[$this->column_keys[$key]] = $value;
+						break;
+					case 'post_author' == $key: // (login or ID) post_author
+						if (is_numeric($value)) {
+							$user = get_user_by('id',$value);
+						} else {
+							$user = get_user_by('login',$value);
 						}
-					}
-				}
-				
-				/**
-				 * Filter post data.
-				 *
-				 * @param array $post (required)
-				 * @param bool $is_update
-				 */
-				$post = apply_filters( 'really_simple_csv_importer_save_post', $post, $is_update );
-				/**
-				 * Filter meta data.
-				 *
-				 * @param array $meta (required)
-				 * @param array $post
-				 * @param bool $is_update
-				 */
-				$meta = apply_filters( 'really_simple_csv_importer_save_meta', $meta, $post, $is_update );
-				/**
-				 * Filter taxonomy data.
-				 *
-				 * @param array $tax (required)
-				 * @param array $post
-				 * @param bool $is_update
-				 */
-				$tax = apply_filters( 'really_simple_csv_importer_save_tax', $tax, $post, $is_update );
-				/**
-				 * Filter thumbnail URL or path.
-				 *
-				 * @since 1.3
-				 *
-				 * @param string $post_thumbnail (required)
-				 * @param array $post
-				 * @param bool $is_update
-				 */
-				$post_thumbnail = apply_filters( 'really_simple_csv_importer_save_thumbnail', $post_thumbnail, $post, $is_update );
-
-				/**
-				 * Option for dry run testing
-				 *
-				 * @since 0.5.7
-				 *
-				 * @param bool false
-				 */
-				$dry_run = apply_filters( 'really_simple_csv_importer_dry_run', false );
-				
-				if (!$error->get_error_codes() && $dry_run == false) {
-					
-					/**
-					 * Get Alternative Importer Class name.
-					 *
-					 * @since 0.6
-					 *
-					 * @param string Class name to override Importer class. Default to null (do not override).
-					 */
-					$class = apply_filters( 'really_simple_csv_importer_class', null );
-					
-					// save post data
-					if ($class && class_exists($class,false)) {
-						$importer = new $class;
-						$result = $importer->save_post($post,$meta,$tax,$post_thumbnail,$is_update);
-					} else {
-						$result = $this->save_post($post,$meta,$tax,$post_thumbnail,$is_update);
-					}
-					
-					if ($result->isError()) {
-						$error = $result->getError();
-					} else {
-						$post_object = $result->getPost();
-						
-						if (is_object($post_object)) {
-							/**
-							 * Fires adter the post imported.
-							 *
-							 * @since 1.0
-							 *
-							 * @param WP_Post $post_object
-							 */
-							do_action( 'really_simple_csv_importer_post_saved', $post_object );
+						if (isset($user) && is_object($user)) {
+							$post[$key] = $user->ID;
+							unset($user);
 						}
-						
-						echo esc_html(sprintf(__('Processing "%s" done.', 'really-simple-csv-importer'), $post_title));
-					}
-				}
-				
-				// show error messages
-				foreach ($error->get_error_messages() as $message) {
-					echo esc_html($message).'<br>';
-				}
-				
-				echo '</li>';
+						break;
+					case in_array($key, array('post_date', 'post_date_gmt')):// (string) post slug
+						$post[$key] = date("Y-m-d H:i:s", strtotime($value));
+						break;
+					case 'post_status' == $key:	// (string) post status
+	  				if (in_array($value, $post_statuses)) {
+	  					$post[$key] = $value;
+	  				}
+						break;
+					case in_array($key, array('post_name', 'post_password', 'post_title','post_content','post_excerpt', 'post_parent', 'menu_order', 'comment_status', 'post_tags')):
+						$post[$key] = $value;
+						break;
 
-				wp_cache_flush();
+					case 'post_category' == $key: // (string, comma separated) slug of post categories
+						$categories = preg_split("/,+/", $value);
+						if ($categories) {
+							$post[$key] = wp_create_categories($categories);
+						}
+						break;
+					case 'post_thumbnail' == $key: // (string) post thumbnail image uri
+						$post_thumbnail = $value;
+						break;
+					case strpos($key, 'tax_') === 0: //custom taxonomies.
+						$customtaxes = preg_split("/,+/", $value);
+						$taxname = substr($this->column_keys[$key], 4);
+						$tax[$taxname] = array();
+						foreach($customtaxes as $key => $value ) {
+							$tax[$taxname][] = $value;
+						}
+						break;
+					default: //meta key;
+						$meta[$this->column_keys[$key]] = $value;
+						break;
+				}
 			}
+
+			/**
+			 * Filter post data.
+			 *
+			 * @param array $post (required)
+			 * @param bool $is_update
+			 * @param array $data file row data as column key=>value pair array.
+			 */
+			$post = apply_filters( 'really_simple_csv_importer_save_post', $post, $is_update, $data );
+			/**
+			 * Filter meta data.
+			 *
+			 * @param array $meta (required)
+			 * @param array $post
+			 * @param bool $is_update
+			 * @param array $data file row data as column key=>value pair array.
+			 */
+			$meta = apply_filters( 'really_simple_csv_importer_save_meta', $meta, $post, $is_update, $data );
+			/**
+			 * Filter taxonomy data.
+			 *
+			 * @param array $tax (required)
+			 * @param array $post
+			 * @param bool $is_update
+			 * @param array $data file row data as column key=>value pair array.
+			 */
+			$tax = apply_filters( 'really_simple_csv_importer_save_tax', $tax, $post, $is_update, $data );
+			/**
+			 * Filter thumbnail URL or path.
+			 *
+			 * @since 1.3
+			 *
+			 * @param string $post_thumbnail (required)
+			 * @param array $post
+			 * @param bool $is_update
+			 * @param array $data file row data as column key=>value pair array.
+			 */
+			$post_thumbnail = apply_filters( 'really_simple_csv_importer_save_thumbnail', $post_thumbnail, $post, $is_update, $data );
+
+			/**
+			 * Option for dry run testing
+			 *
+			 * @since 0.5.7
+			 *
+			 * @param bool false
+			 */
+			$dry_run = apply_filters( 'really_simple_csv_importer_dry_run', false );
+
+			if (!$error->get_error_codes() && $dry_run == false) {
+
+				/**
+				 * Get Alternative Importer Class name.
+				 *
+				 * @since 0.6
+				 *
+				 * @param string Class name to override Importer class. Default to null (do not override).
+				 */
+				$class = apply_filters( 'really_simple_csv_importer_class', null );
+
+				// save post data
+				if ($class && class_exists($class,false)) {
+					$importer = new $class;
+					$result = $importer->save_post($post,$meta,$tax,$post_thumbnail,$is_update);
+				} else {
+					$result = $this->save_post($post,$meta,$tax,$post_thumbnail,$is_update);
+				}
+
+				if ($result->isError()) {
+					$error = $result->getError();
+				} else {
+					$post_object = $result->getPost();
+
+					if (is_object($post_object)) {
+						/**
+						 * Fires adter the post imported.
+						 *
+						 * @since 1.0
+						 *
+						 * @param WP_Post $post_object
+						 * @param array $data file row data as column key=>value pair array.
+						 */
+						do_action( 'really_simple_csv_importer_post_saved', $post_object, $data );
+					}
+
+					echo esc_html(sprintf(__('Processing "%s" done.', 'really-simple-csv-importer'), $data['post_title']));
+				}
+			}
+
+			// show error messages
+			foreach ($error->get_error_messages() as $message) {
+				echo esc_html($message).'<br>';
+			}
+
+			echo '</li>';
 		}
-		
+
 		echo '</ol>';
 
 		$h->fclose($handle);
-		
+
 		wp_import_cleanup($this->id);
-		
+
 		echo '<h3>'.__('All Done.', 'really-simple-csv-importer').'</h3>';
 	}
 
 	// dispatcher
 	function dispatch() {
 		$this->header();
-		
+
 		if (empty ($_GET['step']))
 			$step = 0;
 		else
@@ -480,28 +377,19 @@ class RS_CSV_Importer extends WP_Importer {
 					echo $result->get_error_message();
 				break;
 		}
-		
+
 		$this->footer();
 	}
-	
+
 }
 
 // Initialize
 function really_simple_csv_importer() {
 	load_plugin_textdomain( 'really-simple-csv-importer', false, dirname( plugin_basename(__FILE__) ) . '/languages' );
-	
+
     $rs_csv_importer = new RS_CSV_Importer();
     register_importer('csv', __('CSV', 'really-simple-csv-importer'), __('Import posts, categories, tags, custom fields from simple csv file.', 'really-simple-csv-importer'), array ($rs_csv_importer, 'dispatch'));
 }
 add_action( 'plugins_loaded', 'really_simple_csv_importer' );
-
-function really_simple_csv_importer_enqueue($hook) {
-	if ( 'admin.php' != $hook ) {
-		return;
-	}
-
-	wp_enqueue_script( 'really_simple_csv_importer_admin_script', plugin_dir_url( __FILE__ ) . 'auto.js', array(), false, true );
-}
-add_action( 'admin_enqueue_scripts', 'really_simple_csv_importer_enqueue' );
 
 } // class_exists( 'WP_Importer' )

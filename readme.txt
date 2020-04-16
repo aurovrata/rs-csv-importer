@@ -1,9 +1,9 @@
 === Really Simple CSV Importer ===
-Contributors: hissy
+Contributors: hissy, aurovrata
 Tags: importer, csv, acf, cfs, scf
 Requires at least: 3.6
-Tested up to: 4.3
-Stable tag: 1.3
+Tested up to: 5.4
+Stable tag: trunk
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,7 +22,7 @@ Alternative CSV Importer plugin. Simple and powerful, best for geeks.
 * Custom Taxonomy support
 * Custom Post Type support
 * Filter hook for dry-run-testing
-* [Filter hooks for customized csv data importing](https://wordpress.org/plugins/really-simple-csv-importer/other_notes/) to database
+* Filter hooks for customize csv data before importing to database
 * Action hook for update post data after importing to database
 
 You can get example CSV files in `/wp-content/plugins/really-simple-csv-importer/sample` directory.
@@ -31,7 +31,6 @@ You can get example CSV files in `/wp-content/plugins/really-simple-csv-importer
 * `ID` or `post_id`: (int) post id.
   This value is not required. The post ID is already exists in your blog, importer will update that post data. If the ID is not exists, importer will trying to create a new post with suggested ID.
 * `post_author`: (login or ID) The user name or user ID number of the author.
-* `post_author_login`: The user name of the author.
 * `post_date`: (string) The time of publish date.
 * `post_content`: (string) The full text of the post.
 * `post_title`: (string) The title of the post.
@@ -114,96 +113,6 @@ Because PHP cannot read multibyte text cells in some cases.
 Yes. Please create additional plugin and use `really_simple_csv_importer_save_meta` filter to make array data.
 
 [Add-on development example](https://gist.github.com/hissy/d2041481a72510b7f394)
-
-= Can I import multiple files as attachments into a post? =
-
-Here is an example, assuming you have a field called `cf47rs_images`, format the csv cell data as,
-
-`http://localhost/websitename/photos/photo12345-1.jpg|http://localhost/websitename/photos/photo12345-2.jpg|http://localhost/websitename/photos/photo12345-3.jpg`
-
-or some other urls of files you want to import, and then use the `really_simple_csv_importer_save_meta` filter to hook into the import process,
-
-`add_filter( 'really_simple_csv_importer_save_meta', 'rsc_import_images',10,3);
-function rsc_import_images( $meta, $post, $is_update ) {
-  //convert to an array
-  $images = explode("|",$meta['cf47rs_images']);
-  $meta['cf47rs_images']=array();//reset the meta field
-
-  //directory to import images to
-  $artDir = 'wp-content/uploads/imported_cf47rs_images/';
-
-  //if the directory doesn't exist, create it
-  if(!file_exists(ABSPATH.$artDir)) {
-    mkdir(ABSPATH.$artDir);
-  }
-
-  require_once(ABSPATH . 'wp-load.php');
-  require_once(ABSPATH . 'wp-admin/includes/image.php');
-  global $wpdb;
-
-  //loop through each photos that need to be imported
-  foreach($images as $file_url){
-    //let's get the image file name
-    $new_filename = array_pop(explode("/", $file_url));
-
-    //move the file to our custom import folder
-    if (@fclose(@fopen($file_url, "r"))) { //make sure the file actually exists
-      $siteurl = get_option('siteurl');
-      $skip_attachment_insert=false;
-      //check if this image has already been imported,
-      if(file_exists(ABSPATH.$artDir.$new_filename) ){ //file already imported
-        //either change the name of the file  UNCOMMENT the following line
-        //$new_filename = date("Y-m-d H:i:s").$new_filename;
-
-        //.... or overwrite it, COMMENT OUT the next 3 lines of code if you choose to uncomment the renaming of file name.
-        //in which case we want to find the attachment ID and store it in our meta field
-        $attach_id = attachment_url_to_postid($siteurl.'/'.$artDir.$new_filename);
-        $meta['cf47rs_images'][$attach_id] = $siteurl.'/'.$artDir.$new_filename;
-        //no need to insert a new attachment, we reuse the same
-        $skip_attachment_insert=true;
-      }
-      //(over)write the new file
-      copy($file_url, ABSPATH.$artDir.$new_filename);
-
-      if($skip_attachment_insert) continue;
-
-      $file_info = getimagesize(ABSPATH.$artDir.$new_filename);
-
-      //create an array of attachment data to insert into wp_posts table
-      $artdata = array(
-        'post_author' => 1,
-        'post_date' => current_time('mysql'),
-        'post_date_gmt' => current_time('mysql'),
-        'post_title' => $new_filename,
-        'post_status' => 'inherit',
-        'comment_status' => 'closed',
-        'ping_status' => 'closed',
-        'post_name' => sanitize_title_with_dashes(str_replace("_", "-", $new_filename)),
-        'post_modified' => current_time('mysql'),
-        'post_modified_gmt' => current_time('mysql'),
-        'post_type' => 'attachment',
-        'guid' => $siteurl.'/'.$artDir.$new_filename,
-        'post_mime_type' => $file_info['mime']
-      );
-
-      $uploads = wp_upload_dir();
-      $save_path = $uploads['basedir'].'/imported_cf47rs_images/'.$new_filename;
-
-      //insert the database record
-      $attach_id = wp_insert_attachment( $artdata, $save_path );
-
-      $meta['cf47rs_images'][$attach_id] = $siteurl.'/'.$artDir.$new_filename;
-      //generate metadata and thumbnails, comment this out if you don't want thumbnails
-      if ($attach_data = wp_generate_attachment_metadata( $attach_id, $save_path)) {
-        wp_update_attachment_metadata($attach_id, $attach_data);
-      }
-    }
-  }
-
-
-  return $meta;
-}
-`
 
 == How to debug import data ==
 
@@ -348,6 +257,9 @@ This filter provides availability to completely replace the `RS_CSV_Importer#sav
 Example: Update row based on a custom field ID/key match (Download from [gist](https://gist.github.com/hissy/199ad9be855ec9be1e54))
 
 == Changelog ==
+= 1.4.0 =
+* change in the handling to row data.
+* pass row data as column=>value pair array to plugin filters.
 
 = 1.3 =
 * Some Enhancements (Thanks @piwi!)
